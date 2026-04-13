@@ -1,18 +1,89 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import type { Metadata } from "next";
 import SafeImage from "@/app/components/SafeImage";
-import { FaPlay, FaStar, FaShareAlt } from "react-icons/fa";
-import { LuClock, LuEye, LuFilm, LuThumbsUp, LuThumbsDown } from "react-icons/lu";
-import { getDrama, getSimilarDramas, getDramaEpisodes, type ApiEpisode } from "@/lib/api";
+import { FaPlay, FaStar } from "react-icons/fa";
+import { LuEye, LuFilm, LuThumbsUp } from "react-icons/lu";
+import {
+  getDrama,
+  getSimilarDramas,
+  getDramaEpisodes,
+  normalizeImageUrl,
+  type ApiEpisode,
+} from "@/lib/api";
 import EpisodePlayer from "./EpisodePlayer";
 import Description from "./Description";
 import SaveButton from "./SaveButton";
 import ViewTracker from "./ViewTracker";
 import SimilarSwiper from "./SimilarSwiper";
+import ShareButton from "./ShareButton";
 
 type MoviePageProps = {
   params: Promise<{ id: string }>;
 };
+
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://idub.uz";
+
+export async function generateMetadata({
+  params,
+}: MoviePageProps): Promise<Metadata> {
+  const { id } = await params;
+  try {
+    const { drama } = await getDrama(id);
+    if (!drama) return { title: "Drama topilmadi — IDUB" };
+
+    const title = drama.title;
+    const pageTitle = `${title}${drama.year ? ` (${drama.year})` : ""} — IDUB`;
+    const descRaw =
+      drama.description ||
+      `${title}${drama.year ? ` (${drama.year})` : ""} — IDUB saytida o'zbek tilida onlayn tomosha qiling.`;
+    const description = descRaw.replace(/\s+/g, " ").trim().slice(0, 160);
+    const url = `${SITE_URL}/movie/${id}`;
+    const image = normalizeImageUrl(drama.bannerUrl || drama.posterUrl);
+    const keywords = [
+      title,
+      drama.year ? `${title} ${drama.year}` : null,
+      "koreya dramasi",
+      "o'zbek tilida",
+      "online tomosha",
+      "IDUB",
+      ...(drama.genres || []).map((g) =>
+        typeof g === "string" ? g : (g as { title?: string }).title || ""
+      ),
+      ...(drama.tags || []),
+      drama.director,
+      drama.country,
+    ].filter(Boolean) as string[];
+
+    return {
+      title: pageTitle,
+      description,
+      keywords,
+      alternates: { canonical: url },
+      openGraph: {
+        type: "video.tv_show",
+        title: pageTitle,
+        description,
+        url,
+        siteName: "IDUB",
+        locale: "uz_UZ",
+        images: image
+          ? [{ url: image, width: 1200, height: 630, alt: title }]
+          : undefined,
+      },
+      twitter: {
+        card: "summary_large_image",
+        title: pageTitle,
+        description,
+        images: image ? [image] : undefined,
+      },
+      robots: { index: true, follow: true },
+    };
+  } catch {
+    return { title: "Drama topilmadi — IDUB" };
+  }
+}
 
 export default async function MoviePage({ params }: MoviePageProps) {
   const { id } = await params;
@@ -66,8 +137,48 @@ export default async function MoviePage({ params }: MoviePageProps) {
     seriesNumber: d.seriesNumber,
   }));
 
+  const canonicalUrl = `${SITE_URL}/movie/${id}`;
+  const ogImage = normalizeImageUrl(drama.bannerUrl || drama.posterUrl);
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": drama.totalEpisodes && drama.totalEpisodes > 1 ? "TVSeries" : "Movie",
+    name: drama.title,
+    description: drama.description,
+    image: ogImage || undefined,
+    url: canonicalUrl,
+    inLanguage: drama.language || "uz",
+    countryOfOrigin: drama.country,
+    datePublished: drama.year ? `${drama.year}` : undefined,
+    numberOfEpisodes: drama.totalEpisodes,
+    genre: (drama.genres || []).map((g) =>
+      typeof g === "string" ? g : (g as { title?: string }).title
+    ),
+    director: drama.director
+      ? { "@type": "Person", name: drama.director }
+      : undefined,
+    actor: (drama.actors || []).map((a) => ({
+      "@type": "Person",
+      name: a.name,
+      url: `${SITE_URL}/aktyorlar/${a.id}`,
+    })),
+    aggregateRating:
+      drama.imdbRating != null
+        ? {
+            "@type": "AggregateRating",
+            ratingValue: drama.imdbRating,
+            bestRating: 10,
+            ratingCount: Math.max(drama.viewsCount || 1, 1),
+          }
+        : undefined,
+  };
+
   return (
     <div className="bg-main text-white min-h-screen">
+      <script
+        type="application/ld+json"
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <ViewTracker dramaId={id} />
 
       {/* --- HERO SECTION --- */}
@@ -191,15 +302,7 @@ export default async function MoviePage({ params }: MoviePageProps) {
                 </a>
                 <SaveButton dramaId={id} />
                 <div className="flex items-center gap-1 ml-1">
-                  <button className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-full bg-white/5 border border-white/10 hover:bg-blue-500/15 hover:border-blue-500/30 hover:text-blue-400 transition-all duration-200" aria-label="Yoqdi">
-                    <LuThumbsUp className="size-4" />
-                  </button>
-                  <button className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-full bg-white/5 border border-white/10 hover:bg-red-500/15 hover:border-red-500/30 hover:text-red-400 transition-all duration-200" aria-label="Yoqmadi">
-                    <LuThumbsDown className="size-4" />
-                  </button>
-                  <button className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-full bg-white/5 border border-white/10 hover:bg-green-500/15 hover:border-green-500/30 hover:text-green-400 transition-all duration-200" aria-label="Ulashish">
-                    <FaShareAlt className="size-3.5" />
-                  </button>
+                  <ShareButton dramaId={id} title={drama.title} />
                 </div>
               </div>
 

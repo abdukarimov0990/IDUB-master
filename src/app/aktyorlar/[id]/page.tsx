@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import type { Metadata } from "next";
 import SafeImage from "@/app/components/SafeImage";
 import { getActor, normalizeImageUrl, type ActorDramaItem } from "@/lib/api";
 import Breadcrumb from "@/app/components/BreadCrumb";
@@ -13,11 +14,68 @@ const ROLE_LABEL: Record<string, string> = {
   GUEST: "Mehmon",
 };
 
-export default async function ActorDetailPage({
-  params,
-}: {
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://idub.uz";
+
+type ActorPageProps = {
   params: Promise<{ id: string }>;
-}) {
+};
+
+export async function generateMetadata({
+  params,
+}: ActorPageProps): Promise<Metadata> {
+  const { id } = await params;
+  try {
+    const actor = await getActor(id);
+    if (!actor) return { title: "Aktyor topilmadi — IDUB" };
+
+    const title = `${actor.name} — Aktyor, filmografiya | IDUB`;
+    const dramaTitles = (actor.dramas || []).slice(0, 5).map((d) => d.title);
+    const descRaw =
+      actor.bio ||
+      `${actor.name} — koreya aktyori. ${dramaTitles.length ? `Asosiy dramalari: ${dramaTitles.join(", ")}.` : ""} IDUB saytida filmografiyasini ko'ring.`;
+    const description = descRaw.replace(/\s+/g, " ").trim().slice(0, 160);
+    const url = `${SITE_URL}/aktyorlar/${id}`;
+    const image = actor.actorImg ? normalizeImageUrl(actor.actorImg) : null;
+    const keywords = [
+      actor.name,
+      "aktyor",
+      "koreya aktyori",
+      "filmografiya",
+      "IDUB",
+      ...dramaTitles,
+    ];
+
+    return {
+      title,
+      description,
+      keywords,
+      alternates: { canonical: url },
+      openGraph: {
+        type: "profile",
+        title,
+        description,
+        url,
+        siteName: "IDUB",
+        locale: "uz_UZ",
+        images: image
+          ? [{ url: image, width: 1200, height: 630, alt: actor.name }]
+          : undefined,
+      },
+      twitter: {
+        card: "summary_large_image",
+        title,
+        description,
+        images: image ? [image] : undefined,
+      },
+      robots: { index: true, follow: true },
+    };
+  } catch {
+    return { title: "Aktyor topilmadi — IDUB" };
+  }
+}
+
+export default async function ActorDetailPage({ params }: ActorPageProps) {
   const { id } = await params;
 
   let actor;
@@ -39,8 +97,28 @@ export default async function ActorDetailPage({
         ).toFixed(1)
       : null;
 
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    name: actor.name,
+    description: actor.bio,
+    image: actor.actorImg ? normalizeImageUrl(actor.actorImg) : undefined,
+    url: `${SITE_URL}/aktyorlar/${id}`,
+    jobTitle: "Actor",
+    knownFor: dramas.slice(0, 10).map((d) => ({
+      "@type": "CreativeWork",
+      name: d.title,
+      url: `${SITE_URL}/movie/${d.id}`,
+    })),
+  };
+
   return (
     <div className="relative bg-main text-white min-h-screen">
+      <script
+        type="application/ld+json"
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       {/* HERO */}
       <div className="relative w-full h-[40vh] sm:h-[50vh] md:h-[60vh] overflow-hidden">
         {actor.actorImg ? (
